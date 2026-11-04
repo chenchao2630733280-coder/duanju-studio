@@ -1,0 +1,78 @@
+{
+  "name": "duanju-studio",
+  "productName": "短剧工作台",
+  "version": "1.0.2",
+  "description": "短剧工作台 · AI 短剧可视化制作桌面端",
+  "main": "electron/main.js",
+  "author": "Duanju Studio",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chenchao2630733280-coder/duanju-studio.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win --publish never",
+    "release": "node scripts/prepare-release.js && electron-builder --win nsis --publish always"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "com.duanju.studio",
+    "productName": "短剧工作台",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "artifactName": "DuanjuStudio-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "短剧工作台"
+    },
+    "portable": {
+      "artifactName": "DuanjuStudio-Portable-${version}-${arch}.${ext}"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "chenchao2630733280-coder",
+        "repo": "duanju-studio",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  }
+}
