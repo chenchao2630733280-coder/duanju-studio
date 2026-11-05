@@ -149,7 +149,7 @@
             ${emotions.map((e, i) => `<button class="chip ${i < 3 ? 'accent' : ''}" data-emo="${e}">${e}</button>`).join('')}
           </div>
         </div>
-        <div class="card-sub" style="line-height:1.8">创建后进入「私货与选题」，可继续补齐 7 项私货，再让模型生成 9 个跨类型高概念候选。</div>`,
+        <div class="card-sub" style="line-height:1.8">创建后进入「私货与立项」，可继续补齐 7 项私货；高概念在「选题库」按参数生成，再应用回项目。</div>`,
       footer: `<button class="btn" data-close>取消</button><button class="btn btn-primary" id="np-create">${window.Icons.plus} 创建并进入</button>`
     });
 

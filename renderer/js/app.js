@@ -44,6 +44,7 @@
           <div class="nav-group">
             <div class="nav-title">工作区</div>
             <div class="nav-item ${App.view === 'projects' ? 'active' : ''}" data-go="projects"><span class="ni">${window.Icons.grid}</span>项目库</div>
+            <div class="nav-item ${App.view === 'topics' ? 'active' : ''}" data-go="topics"><span class="ni">${window.Icons.compass}</span>选题库</div>
             <div class="nav-item ${App.view === 'models' ? 'active' : ''}" data-go="models"><span class="ni">${window.Icons.model}</span>模型配置</div>
             <div class="nav-item ${App.view === 'settings' ? 'active' : ''}" data-go="settings"><span class="ni">${window.Icons.settings}</span>设置</div>
           </div>
@@ -68,7 +69,7 @@
       if (target.view) return `data-go="${target.view}"`;
       return `data-go="step" data-step="${target.id}"`;
     };
-    const activeGate = App.view === 'topic' ? 'g0'
+    const activeGate = App.view === 'topic' || App.view === 'topics' ? 'g0'
       : App.view === 'outline' ? 'g2'
         : App.view === 'scripts' ? 'g3'
           : App.view === 'storyboard' ? 'g5'
@@ -79,7 +80,9 @@
       const pr = D.gateProgress(ph.id, p);
       const nodes = D.phaseNodes(ph.id, p);
       const icon = `<span class="ni">${window.Icons[gateIcons[ph.id]]}</span>`;
-      const count = `<span class="num">${pr.done}/${pr.total}</span>`;
+      const count = ph.optional
+        ? '<span class="num" title="可选增强：用于给剧本注入个性化设定">可选</span>'
+        : `<span class="num">${pr.done}/${pr.total}</span>`;
       if (nodes.length > 1) {
         return `<div class="nav-item nav-item-steps ${activeGate === ph.id ? 'active' : ''}" ${gateTarget(ph)}>
           ${icon}
@@ -108,6 +111,7 @@
         <div class="nav-group">
           <div class="nav-title">项目</div>
           <div class="nav-item ${App.view === 'dashboard' ? 'active' : ''}" data-go="dashboard"><span class="ni">${window.Icons.grid}</span>项目总览</div>
+          <div class="nav-item ${App.view === 'topics' ? 'active' : ''}" data-go="topics"><span class="ni">${window.Icons.compass}</span>选题库</div>
           ${navGates}
         </div>
         <div class="nav-group">
@@ -117,7 +121,7 @@
           <div class="nav-item ${App.view === 'settings' ? 'active' : ''}" data-go="settings"><span class="ni">${window.Icons.folder}</span>导出与设置</div>
         </div>
         <div class="mini-progress">
-          <div class="mp-head"><span>全流程进度</span><b>${overall}%</b></div>
+          <div class="mp-head"><span>主线进度</span><b>${overall}%</b></div>
           <div class="bar"><i style="width:${overall}%"></i></div>
           <div class="tiny faint" style="margin-top:8px">下一步：${U.escape(currentStep.title)}</div>
         </div>

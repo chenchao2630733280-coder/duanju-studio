@@ -41,6 +41,8 @@
             <div class="page-desc">把分集大纲扩展为可直接拍摄的竖屏剧本。单集 60—180 秒，10—25 个镜头；开场 5 秒出钩子，结尾卡点与上一集不同类型。</div>
           </div>
           <div class="page-actions">
+            <button class="btn" id="import-script" title="支持 .txt / .md，自动识别「第X集」「EP01」等标记">${window.Icons.upload} 导入剧本</button>
+            <input type="file" id="script-file" accept=".txt,.md,.markdown,text/plain,text/markdown" style="display:none" />
             <button class="btn" id="export-ep">${window.Icons.export} 导出文档</button>
             <button class="btn btn-ai" id="ai-script">${window.Icons.spark} AI 写本集</button>
             <button class="btn btn-primary" id="to-board">去分镜台 ${window.Icons.arrowRight}</button>
@@ -186,6 +188,40 @@
       window.Store.touch();
       App.refresh();
     });
+
+    const importBtn = root.querySelector('#import-script');
+    const fileInput = root.querySelector('#script-file');
+    if (importBtn && fileInput) {
+      importBtn.addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', async function () {
+        const file = fileInput.files && fileInput.files[0];
+        fileInput.value = '';
+        if (!file) return;
+        const original = importBtn.innerHTML;
+        try {
+          const buffer = await file.arrayBuffer();
+          let text = new TextDecoder('utf-8').decode(buffer);
+          if (text.indexOf('\uFFFD') >= 0) {
+            try { text = new TextDecoder('gbk').decode(buffer); } catch (e) { /* 保留 UTF-8 结果 */ }
+          }
+          const parsed = window.Gen.parseExistingScript(text, ep);
+          if (!parsed.length) { U.toast('没有识别到剧本内容', 'err'); return; }
+          const eps = parsed.map(x => Number(x.ep));
+          const count = parsed.reduce((n, x) => n + x.shots.length, 0);
+          const overlap = (p.shots || []).filter(s => eps.includes(Number(s.ep))).length;
+          if (overlap && !(await U.confirm('覆盖已有剧本', `将导入 ${parsed.length} 集 / ${count} 个镜头，并覆盖 ${overlap} 个已有镜头。是否继续？`, '覆盖导入'))) return;
+          importBtn.disabled = true;
+          importBtn.innerHTML = '<span class="spinner"></span> 导入中…';
+          const res = window.Gen.applyImportedScript(p, parsed);
+          U.toast(`已导入 ${res.episodes} 集 / ${res.shots} 个镜头`, 'ok');
+          App.go('scripts', { ep: parsed[0].ep });
+        } catch (e) {
+          importBtn.disabled = false;
+          importBtn.innerHTML = original;
+          U.toast('导入失败：' + e.message, 'err');
+        }
+      });
+    }
 
     root.querySelector('#to-board').addEventListener('click', function () {
       App.go('storyboard', { ep });

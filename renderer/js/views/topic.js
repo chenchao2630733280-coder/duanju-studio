@@ -19,13 +19,14 @@
         <div class="page-head">
           <div class="ph-main">
             <div class="crumb">${D.phaseLabel(D.gateOf('topic'))} · 立项</div>
-            <div class="page-title">私货与选题 <span class="step-no">第 0 步</span></div>
-            <div class="page-desc">私货 = 不可替代性，AI 只放大、不拥有。先写下只有你能提供的主题与细节，再让模型发散 9 个跨类型高概念，最后挑一个“心里一紧”的。</div>
+            <div class="page-title">私货与立项 <span class="step-no">第 0 步</span></div>
+            <div class="page-desc">私货 = 不可替代性，AI 只放大、不拥有。先写下只有你能提供的主题与细节；高概念在「选题库」按参数生成，挑一个“心里一紧”的应用到这里。</div>
           </div>
           <div class="page-actions">
             <button class="btn" id="ask-me">${window.Icons.brain} 私货追问</button>
-            <button class="btn btn-ai" id="gen-concepts">${window.Icons.wand} 生成 9 个高概念</button>
-            <button class="btn btn-primary" id="next">进入故事规格 ${window.Icons.arrowRight}</button>
+            <button class="btn" id="to-topics">${window.Icons.compass} 去选题库</button>
+            <button class="btn" id="to-spec">故事规格（可选）</button>
+            <button class="btn btn-primary" id="next">进入分集大纲 ${window.Icons.arrowRight}</button>
           </div>
         </div>
 
@@ -97,7 +98,7 @@
                 <div style="font-size:14px;font-weight:650">${U.escape(chosen.title)}</div>
                 <div class="tiny muted mt-8" style="line-height:1.8">${U.escape(chosen.logline)}</div>
                 <div class="mt-12"><span class="chip accent">${U.escape(chosen.emotion || '')}</span></div>
-              ` : '<div class="tiny faint">尚未选择高概念方向。生成后挑一个让你“心里一紧”的。</div>'}
+              ` : '<div class="tiny faint">尚未应用选题方向。去「选题库」生成候选，挑一个让你“心里一紧”的应用到这里。</div>'}
             </div>
             <div class="aside-card">
               <h4>选题复核门槛</h4>
@@ -110,22 +111,6 @@
               </ul>
             </div>
           </div>
-        </div>
-
-        <div class="section">
-          <div class="section-head">
-            <div class="section-title">高概念候选 · ${concepts.length}</div>
-            <div class="section-line"></div>
-            <div class="flex gap-6 center">
-              <select class="select" id="concept-genre" title="类型聚焦：只影响本次生成" style="height:28px;width:134px;font-size:11.5px;padding:0 6px">
-                <option value="">跨类型发散</option>
-                ${D.genreGroups.map(g => `<optgroup label="${U.escape(g.label)}">${g.items.map(x => `<option value="${U.escape(x)}" ${ov.conceptGenre === x ? 'selected' : ''}>${U.escape(x)}</option>`).join('')}</optgroup>`).join('')}
-              </select>
-              <button class="btn btn-sm btn-ai" id="gen-concepts-2">${window.Icons.wand} ${concepts.length ? '换一批' : '生成'}</button>
-            </div>
-          </div>
-          <div class="section-hint" style="margin:-4px 0 12px">先发散、再聚焦：挑一个“心里一紧”的，而不是“正确但平庸”的。9 个候选自动跨类型，每个都能一键应用到立项蓝图。</div>
-          ${concepts.length ? `<div class="grid-3" id="concept-grid">${concepts.map((c, i) => conceptCard(c, i, Number(ov.choseConcept || 0))).join('')}</div>` : U.empty('还没有高概念候选', '补完私货后点击「生成 9 个高概念」：模型会按不同类型给出候选，每个 3 句话内讲清人物 / 冲突 / 独特设定 / 情感钩子。', '<button class="btn btn-ai" id="gen-empty">' + window.Icons.wand + ' 生成 9 个高概念</button>')}
         </div>
       </div>`;
 
@@ -142,133 +127,11 @@
       });
     });
 
-    const genreSel = root.querySelector('#concept-genre');
-    if (genreSel) genreSel.addEventListener('change', function () {
-      ov.conceptGenre = genreSel.value;
-      window.Store.touch();
-    });
-
-    const gen = async function (ev) {
-      if (!App.requireAI('llm')) return;
-      if (!String(pg.theme || '').trim()) {
-        const ok = await U.confirm('私货还没填', '没有私货的高概念很容易变成换皮套路。建议先补「① 最想表达的主题」。仍要现在生成吗？', '仍然生成');
-        if (!ok) return;
-      }
-      if ((ov.concepts || []).length && !(await U.confirm('重新生成高概念', '当前高概念候选与手工编辑会被替换。是否继续？', '重新生成'))) return;
-      const focus = genreSel ? genreSel.value : (ov.conceptGenre || '');
-      const buttons = [root.querySelector('#gen-concepts'), root.querySelector('#gen-concepts-2'), root.querySelector('#gen-empty')].filter(Boolean);
-      const btn = (ev && ev.currentTarget && ev.currentTarget.tagName === 'BUTTON') ? ev.currentTarget : buttons[0];
-      const origin = btn ? btn.innerHTML : '';
-      buttons.forEach(b => { b.disabled = true; });
-      if (btn) btn.innerHTML = '<span class="spinner"></span> 生成中';
-      try {
-        ov.concepts = await window.Gen.aiConcepts(p, { count: 9, genre: focus });
-        ov.conceptGenre = focus;
-        ov.choseConcept = 0;
-        window.Store.addActivity(`AI 生成 ${ov.concepts.length} 个高概念${focus ? `（聚焦 ${focus}）` : ''}`);
-        window.Store.touch();
-        U.toast(`AI 已生成 ${ov.concepts.length} 个高概念候选${window.Gen.usageText()}`, 'ok');
-        App.refresh();
-      } catch (e) {
-        U.toast('生成失败：' + e.message, 'err');
-        buttons.forEach(b => { b.disabled = false; });
-        if (btn) btn.innerHTML = origin;
-      }
-    };
-    root.querySelector('#gen-concepts').addEventListener('click', gen);
-    const genMore = root.querySelector('#gen-concepts-2');
-    if (genMore) genMore.addEventListener('click', gen);
-    const genEmpty = root.querySelector('#gen-empty');
-    if (genEmpty) genEmpty.addEventListener('click', gen);
-
-    root.querySelectorAll('[data-chose]').forEach(function (el) {
-      el.addEventListener('click', function (e) {
-        if (e.target.closest('[data-edit-concept]')) return;
-        ov.choseConcept = Number(el.dataset.chose);
-        window.Store.addActivity('选定高概念：' + (concepts[ov.choseConcept]?.title || ''));
-        window.Store.touch();
-        App.refresh();
-      });
-    });
-
-    root.querySelectorAll('[data-apply]').forEach(function (el) {
-      el.addEventListener('click', function (e) {
-        e.stopPropagation();
-        const c = concepts[Number(el.dataset.apply)];
-        ov.choseConcept = Number(el.dataset.apply);
-        ov.title = c.title;
-        ov.logline = c.logline;
-        p.name = c.title;
-        window.Store.touch();
-        U.toast('已应用到立项蓝图', 'ok');
-        App.refresh();
-      });
-    });
-
-    root.querySelectorAll('[data-edit-concept]').forEach(function (el) {
-      el.addEventListener('click', function (e) {
-        e.stopPropagation();
-        editConcept(Number(el.dataset.editConcept));
-      });
-    });
-
     root.querySelector('#ask-me').addEventListener('click', function () { showQuestions(p, pg); });
-    root.querySelector('#next').addEventListener('click', function () {
-      App.go('step', { id: 'review' });
-    });
-
-    function editConcept(i) {
-      const c = concepts[i] || {};
-      const m = U.modal({
-        title: '编辑高概念',
-        wide: true,
-        body: `<div class="grid-2">
-          ${U.renderFields([
-            { key: 'title', label: '标题' },
-            { key: 'hero', label: '主角（姓名 / 年龄 / 职业）' },
-            { key: 'emotion', label: '最能打动观众的情绪' },
-            { key: 'unique', label: '独特设定' }
-          ], c)}
-          ${U.renderFields([{ key: 'logline', label: '一句话高概念', type: 'textarea', rows: 3 }, { key: 'hook', label: '第一集钩子', type: 'textarea', rows: 3 }, { key: 'conflict', label: '核心冲突', type: 'textarea', rows: 3 }], c)}
-        </div>`,
-        footer: `<button class="btn" data-close>取消</button><button class="btn btn-primary" id="save-concept">保存</button>`
-      });
-      U.bind(m.root, () => c);
-      m.root.querySelector('#save-concept').addEventListener('click', function () {
-        concepts[i] = Object.assign({}, concepts[i], U.formObj(m.root));
-        ov.concepts = concepts;
-        window.Store.touch();
-        m.close();
-        App.refresh();
-      });
-    }
+    root.querySelector('#to-topics').addEventListener('click', () => App.go('topics'));
+    root.querySelector('#to-spec').addEventListener('click', () => App.go('step', { id: 'review' }));
+    root.querySelector('#next').addEventListener('click', () => App.go('outline'));
   };
-
-  function conceptCard(c, i, chosenIndex) {
-    const on = i === chosenIndex;
-    return `<div class="card card-hover" data-chose="${i}" style="${on ? 'border-color:rgba(255,106,77,.45);background:linear-gradient(180deg,rgba(255,106,77,.07),rgba(16,19,27,.86))' : ''}">
-      <div class="flex between center">
-        <span class="tiny faint mono">0${i + 1}</span>
-        <div class="flex gap-6">
-          ${on ? '<span class="chip accent">当前方向</span>' : ''}
-          <button class="btn btn-icon btn-sm btn-ghost" data-edit-concept="${i}" title="编辑">${window.Icons.edit}</button>
-        </div>
-      </div>
-      <div style="font-size:15px;font-weight:650;margin:8px 0 6px">${U.escape(c.title || '未命名')}</div>
-      <div class="card-sub" style="min-height:64px">${U.escape(c.logline || '')}</div>
-      <div class="chip-row mt-8">
-        ${c.genre ? `<span class="chip accent">${U.escape(c.genre)}</span>` : ''}
-        <span class="chip teal">${U.escape(c.emotion || '')}</span>
-        ${c.profession ? `<span class="chip">${U.escape(c.profession)}</span>` : ''}
-      </div>
-      <div class="divider" style="margin:12px 0"></div>
-      <div class="tiny muted" style="line-height:1.7;height:44px;overflow:hidden">独特设定：${U.escape(c.unique || '—')}</div>
-      <div class="flex gap-6 mt-8">
-        <button class="btn btn-sm flex1 ${on ? 'btn-ghost' : ''}" data-chose="${i}">${on ? '已选择' : '选为方向'}</button>
-        <button class="btn btn-sm btn-ai" data-apply="${i}">应用</button>
-      </div>
-    </div>`;
-  }
 
   async function showQuestions(p, pg) {
     if (!App.requireAI('llm')) return;

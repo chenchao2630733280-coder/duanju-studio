@@ -22,7 +22,7 @@
       <div class="page">
         <div class="page-head">
           <div class="ph-main">
-            <div class="crumb">${gate ? D.phaseLabel(gate) + ' · ' + gate.name : '开发流程'} / 步骤 ${step.no}</div>
+            <div class="crumb">${gate ? D.phaseLabel(gate) + ' · ' + gate.name : '开发流程'} / 步骤 ${step.no}${D.isOptionalStep(step.id) ? ' · 可选增强' : ''}</div>
             <div class="page-title"><span class="step-no">${step.no}</span>${step.title}</div>
             <div class="page-desc">${step.desc}</div>
           </div>
@@ -50,6 +50,7 @@
           <div class="aside-stack">
             <div class="aside-card">
               <h4>本步自检</h4>
+              ${D.isOptionalStep(step.id) ? '<div class="tiny" style="line-height:1.8;margin-bottom:10px;color:var(--accent-2)">可选增强：故事规格用于给剧本注入个性化设定，不填也能继续写大纲与剧本。已有大纲 / 剧本时，点「AI 生成」会参考现有内容自动反推，并保持设定一致。</div>' : ''}
               <div class="tiny muted" style="line-height:1.8;margin-bottom:10px">${U.escape(step.desc)}</div>
               <div class="flex between center">
                 <span class="tiny faint">完成度</span>

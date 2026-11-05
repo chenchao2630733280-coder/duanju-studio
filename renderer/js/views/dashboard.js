@@ -31,7 +31,7 @@
       const tally = nodes.length > 1 ? `${pr.done}/${pr.total} 节点` : (pr.percent === 100 ? '已完成' : '待开始');
       return `<div class="phase-card ${pr.percent === 100 ? 'done' : active ? 'active' : ''}" data-phase="${ph.id}">
         <div class="ph-num">${D.phaseLabel(ph)}</div>
-        <div class="ph-name">${ph.name}</div>
+        <div class="ph-name">${ph.name}${ph.optional ? '<span class="chip tiny" style="margin-left:5px;vertical-align:2px">可选</span>' : ''}</div>
         <div class="flex between center" style="font-size:10.5px;color:var(--muted);margin-bottom:7px">
           <span>${tally}</span><span>${pr.percent}%</span>
         </div>
@@ -65,6 +65,7 @@
         <div class="gate-head">
           <span class="gate-no">${D.phaseLabel(ph)}</span>
           <span class="gate-name">${ph.name}</span>
+          ${ph.optional ? '<span class="chip tiny">可选增强</span>' : ''}
           ${nodes.length > 1 ? `<span class="gh-nodes">${D.nodesHtml(ph.id, p, { cls: 'sm' })}</span>` : ''}
           <span class="gate-count">${pr.done}/${pr.total}</span>
         </div>
@@ -83,7 +84,7 @@
           <div class="dh-main">
             <div class="crumb">PROJECT OVERVIEW</div>
             <h1>${U.escape(p.name)}</h1>
-            <div class="dh-logline">${U.escape(ov.logline || c.logline || '尚未填写一句话高概念，先到「私货与选题」补全。')}</div>
+            <div class="dh-logline">${U.escape(ov.logline || c.logline || '尚未填写一句话高概念，可先去「选题库」生成候选并应用。')}</div>
             <div class="dh-meta">
               <span class="chip">${U.escape(ov.genre || '类型待定')}</span>
               <span class="chip">${eps} 集 · ${U.escape(ov.duration || '1—3分钟')}</span>
@@ -93,7 +94,7 @@
             </div>
           </div>
           <div class="dh-side">
-            <div class="dh-stat-row"><span>全流程进度</span><b>${overall}%</b></div>
+            <div class="dh-stat-row"><span>主线进度</span><b>${overall}%</b></div>
             <div class="bar" style="margin-bottom:10px"><i style="width:${overall}%"></i></div>
             <div class="dh-stat-row"><span>分集大纲</span><b>${(p.outline || []).length}/${eps}</b></div>
             <div class="dh-stat-row"><span>正式剧本</span><b>${written} 集</b></div>
@@ -111,9 +112,9 @@
         <div class="split">
           <div>
             <div class="section-head">
-              <div class="section-title">开发流水线 · ${D.devTotal} 步</div>
+              <div class="section-title">开发流水线 · ${D.coreTotal} 步主线 + ${D.devTotal - D.coreTotal} 步可选</div>
               <div class="section-line"></div>
-              <div class="section-hint">${D.devSteps.filter(s => D.stepDone(s, p)).length}/${D.devTotal} 已完成</div>
+              <div class="section-hint">主线 ${D.coreSteps.filter(s => D.stepDone(s, p)).length}/${D.coreTotal} 已完成 · 故事规格为可选增强</div>
             </div>
             <div class="step-groups">${stepGroups}</div>
           </div>

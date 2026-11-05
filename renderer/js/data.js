@@ -4,7 +4,7 @@
 
   D.phases = [
     { id: 'g0', no: '01', name: '立项', steps: ['topic'] },
-    { id: 'g1', no: '02', name: '故事规格', steps: ['review', 'engine', 'rules', 'characters', 'rival', 'secrets', 'stages', 'emotion', 'cliffhangers'] },
+    { id: 'g1', no: '02', name: '故事规格', optional: true, steps: ['review', 'engine', 'rules', 'characters', 'rival', 'secrets', 'stages', 'emotion', 'cliffhangers'] },
     { id: 'g2', no: '03', name: '分集大纲', steps: ['outline'] },
     { id: 'g3', no: '04', name: '正式剧本', steps: ['scripts'] },
     { id: 'g4', no: '05', name: '制作评估', steps: ['feasibility', 'risks', 'score'] },
@@ -13,9 +13,9 @@
 
   D.steps = [
     {
-      id: 'topic', no: '00', title: '私货与选题', icon: 'compass', gate: 'g0', view: 'topic',
-      desc: '私货是不可替代性，AI 只放大、不拥有。先把作者真实的主题、瞬间与细节写下来，再发散高概念。',
-      tips: ['缺失项逐项询问作者，不替作者编造私货', '高概念 5—8 个方向，剔除正确但平庸的', '先发散、再聚焦，挑一个让你心里一紧的'],
+      id: 'topic', no: '00', title: '私货与立项', icon: 'compass', gate: 'g0', view: 'topic',
+      desc: '私货是不可替代性，AI 只放大、不拥有。先写下作者真实的主题、瞬间与细节；高概念在「选题库」中按参数生成，应用后写入这里的立项蓝图。',
+      tips: ['缺失项逐项询问作者，不替作者编造私货', '选题在「选题库」生成，5—9 个方向，剔除正确但平庸的', '先发散、再聚焦，挑一个让你心里一紧的'],
       fields: [
         { key: 'privateGoods.theme', label: '最想表达的主题', type: 'textarea', placeholder: '如：爱会让人变得自私', hint: '唯一允许向作者提问的环节' },
         { key: 'privateGoods.moment', label: '亲身经历的情感瞬间', type: 'textarea', placeholder: '哪怕很小：一次没说出口的告别' },
@@ -329,7 +329,7 @@
     const has = (v) => v != null && String(v).trim().length > 0;
     switch (step.id) {
       case 'topic':
-        return has(project.overview?.privateGoods?.theme) && (project.overview?.concepts || []).length > 0;
+        return !!project.overview?.privateGoods?.theme && ((project.overview?.concepts || []).length > 0 || !!project.overview?.logline);
       case 'review':
         return !!project.review?.passed && has(project.review?.conclusion);
       case 'engine':
@@ -371,6 +371,19 @@
 
   D.devSteps = D.steps.slice();
   D.devTotal = D.devSteps.length;
+
+  /* 故事规格是“可选增强”，不计入主流程进度 */
+  D.coreSteps = D.steps.filter(function (s) {
+    const gate = D.phases.find(function (ph) { return ph.steps.indexOf(s.id) >= 0; });
+    return !(gate && gate.optional);
+  });
+  D.coreTotal = D.coreSteps.length;
+  D.isOptionalStep = function (id) {
+    const step = D.stepInfo(id);
+    if (!step) return false;
+    const gate = D.gateOf(id);
+    return !!(gate && gate.optional);
+  };
 
   D.stepIndex = function (id) {
     return D.steps.findIndex(s => s.id === id);
@@ -439,12 +452,12 @@
   };
 
   D.overallProgress = function (project) {
-    const done = D.devSteps.filter(s => D.stepDone(s, project)).length;
-    return Math.round((done / D.devTotal) * 100);
+    const done = D.coreSteps.filter(s => D.stepDone(s, project)).length;
+    return Math.round((done / D.coreTotal) * 100);
   };
 
   D.currentStep = function (project) {
-    return D.steps.find(s => !D.stepDone(s, project)) || D.steps[D.steps.length - 1];
+    return D.coreSteps.find(s => !D.stepDone(s, project)) || D.coreSteps[D.coreSteps.length - 1];
   };
 
   window.D = D;

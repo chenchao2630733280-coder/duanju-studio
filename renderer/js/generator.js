@@ -736,6 +736,260 @@
     }));
   };
 
+  /* ---------------- 已有剧本导入 ---------------- */
+  const CN_NUM = { 零: 0, 〇: 0, 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+
+  function toEpNumber(s) {
+    if (/^\d+$/.test(s)) return Number(s);
+    let total = 0;
+    let num = 0;
+    for (const ch of s) {
+      if (CN_NUM[ch] != null) num = CN_NUM[ch];
+      else if (ch === '十') { total += (num || 1) * 10; num = 0; }
+      else if (ch === '百') { total += (num || 1) * 100; num = 0; }
+      else return NaN;
+    }
+    return total + num;
+  }
+
+  function episodeHeading(line) {
+    const raw = String(line || '').trim();
+    if (!raw) return null;
+    const t = raw.replace(/^#{1,6}\s*/, '');
+    let m = t.match(/^[【\[]?\s*第\s*([0-9]+|[一二三四五六七八九十百零〇]+)\s*集\s*[】\]]?(?:\s*[：:·\-—]?\s*(.*))?$/);
+    if (m) {
+      const ep = toEpNumber(m[1]);
+      if (ep > 0) return { ep, title: (m[2] || '').trim() };
+    }
+    m = t.match(/^[【\[]?\s*(?:episode|ep|e)\s*[.．]?\s*([0-9]{1,3})\s*[】\]]?(?:\s*[：:·\-—]?\s*(.*))?$/i);
+    if (m) {
+      const ep = Number(m[1]);
+      if (ep > 0) return { ep, title: (m[2] || '').trim() };
+    }
+    if (raw.charAt(0) === '#') {
+      m = t.match(/^[【\[]?\s*([0-9]{1,3})\s*[】\]]?\s*$/);
+      if (m) {
+        const ep = Number(m[1]);
+        if (ep > 0) return { ep, title: '' };
+      }
+    }
+    return null;
+  }
+
+  function isSceneHeading(line) {
+    const t = String(line || '').trim().replace(/^#{1,6}\s*/, '').replace(/^[【\[]\s*/, '');
+    if (!t) return false;
+    if (/^(场景\s*[0-9一二三四五六七八九十]*|内景|外景)(?:\s|[·:：])/.test(t)) return true;
+    if (/^(INT\.?|EXT\.?|INT\/EXT|I\/E)\b/i.test(t)) return true;
+    if (/^(内|外)\s*[·:：]/.test(t)) return true;
+    if (/^[0-9]{1,3}(?:[-—][0-9]{1,3})?[.、]?\s*(内景|外景|场景|INT|EXT)/i.test(t)) return true;
+    return false;
+  }
+
+  function cleanSceneTitle(line) {
+    return String(line || '').trim()
+      .replace(/^#{1,6}\s*/, '')
+      .replace(/^[【\[]\s*/, '')
+      .replace(/[】\]]\s*$/, '')
+      .replace(/^\d{1,3}(?:[-—]\d{1,3})?[.、)]?\s*/, '')
+      .slice(0, 60) || '内·场景·日';
+  }
+
+  /* 前置信息（剧名/人物表/简介等）不属于任何一集，导入时直接丢弃 */
+  const META_LINE = /^(剧名|片名|标题|作品名?|作者|编剧|导演|类型|题材|风格|集数|总集数|字数|时长|简介|剧情简介|人物|人物表|角色|角色表|主要人物|说明|备注|版本|日期|出品)\s*[：:]/;
+
+  function dialogueLine(line) {
+    const t = String(line || '').trim();
+    if (!t || isSceneHeading(t) || META_LINE.test(t)) return null;
+    const m = t.match(/^([^：:\n]{1,20})[：:]\s*(.+)$/);
+    if (!m) return null;
+    let name = m[1].trim().replace(/^[（(\[][^）)\]]*[）)\]]\s*/, '').replace(/[（(][^）)]*[）)]/g, '').trim();
+    if (!name || name.length > 14) return null;
+    if (/^(场景|时间|地点|人物|道具|备注|注|说明|主题|标题|片名|剧名)$/.test(name)) return null;
+    return { speaker: name, text: m[2].trim() };
+  }
+
+  function guessEmotion(text) {
+    const s = String(text || '');
+    if (/怒|吼|骂|拍桌|摔/.test(s)) return '愤怒';
+    if (/哭|泪|哽|颤/.test(s)) return '悲伤';
+    if (/吻|拥抱|心动|脸红/.test(s)) return '暧昧';
+    if (/追|跑|打|砸|血|刀|逃/.test(s)) return '危机';
+    if (/惊|愣|震|呆/.test(s)) return '震惊';
+    if (/怕|恐惧|发抖/.test(s)) return '恐惧';
+    if (/笑|轻松|玩笑/.test(s)) return '轻松';
+    if (/沉默|不语|低头|转身/.test(s)) return '克制';
+    return '紧张';
+  }
+
+  function importedShotSize(index, action, dialogue) {
+    if (/门|信|照片|手机|刀|血|眼|泪|手|戒指|钥匙/.test(action)) return '特写';
+    if (!action) return dialogue ? '近景' : '中景';
+    return ['中景', '近景', '特写', '中景', '近景', '全景'][index % 6];
+  }
+
+  function importedDuration(dialogue) {
+    if (!dialogue) {
+      return 4;
+    }
+    const n = String(dialogue).replace(/^.*?：/, '').replace(/\s/g, '').length;
+    return Math.max(3, Math.min(10, Math.ceil(n / 4) + 2));
+  }
+
+  function parseEpisodeBlock(lines) {
+    const shots = [];
+    let scene = '内·场景·日';
+    let actionBuf = [];
+    let sizeHint = '';
+    let index = 0;
+
+    function emit(dialogue) {
+      const action = actionBuf.join(' ').trim();
+      actionBuf = [];
+      const size = sizeHint || importedShotSize(index, action, dialogue && dialogue.text);
+      sizeHint = '';
+      const emotion = guessEmotion(action + ' ' + (dialogue ? dialogue.text : ''));
+      const shot = {
+        id: U.uid('shot'), size, sceneTitle: scene, action,
+        dialogue: dialogue ? `${dialogue.speaker}：${dialogue.text}` : '',
+        sound: '', emotion, duration: importedDuration(dialogue && dialogue.text)
+      };
+      const visual = (action || (dialogue ? dialogue.text : '')).replace(/（.*?）/g, '');
+      shot.prompt = `竖屏 9:16，${size}，${visual}，情绪：${emotion}，电影感打光，写实短剧质感。`;
+      shots.push(shot);
+      index++;
+    }
+
+    lines.forEach(function (raw) {
+      let t = String(raw || '').trim();
+      if (!t) {
+        if (actionBuf.length) emit(null);
+        return;
+      }
+      t = t.replace(/^\d{1,3}(?:[-—]\d{1,3})?[.、)]\s*/, '');
+      if (!t) return;
+      if (isSceneHeading(t)) {
+        if (actionBuf.length) emit(null);
+        scene = cleanSceneTitle(t);
+        sizeHint = '';
+        return;
+      }
+      const dialogue = dialogueLine(t);
+      if (dialogue) {
+        emit(dialogue);
+        return;
+      }
+      const sizeMatch = t.match(/^(大特写|特写|近景|中近景|中景|全景|远景)[\s·:：\-—]*/);
+      if (sizeMatch) {
+        if (actionBuf.length) emit(null);
+        sizeHint = sizeMatch[1] === '中近景' ? '近景' : sizeMatch[1];
+        t = t.slice(sizeMatch[0].length).trim();
+        // 短标签（如仅「磁带」「脸」）只作景别标注，不当作独立画面
+        if (!t || t.length < 10 && !/[。！？…，；]$/.test(t)) return;
+      }
+      actionBuf.push(t);
+    });
+    if (actionBuf.length) emit(null);
+    return shots;
+  }
+
+  Gen.parseExistingScript = function (text, fallbackEp) {
+    const source = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+    const lines = source.split('\n');
+    const blocks = [];
+    let current = null;
+
+    lines.forEach(function (line) {
+      const heading = episodeHeading(line);
+      if (heading) {
+        current = { ep: heading.ep, title: heading.title, lines: [] };
+        blocks.push(current);
+        return;
+      }
+      if (current) current.lines.push(line);
+    });
+
+    if (!blocks.length) {
+      blocks.push({ ep: Number(fallbackEp) || 1, title: '', lines });
+    }
+
+    const merged = new Map();
+    blocks.forEach(function (block) {
+      const ep = Number(block.ep) || Number(fallbackEp) || 1;
+      if (!merged.has(ep)) merged.set(ep, { ep, title: block.title || '', lines: [] });
+      const target = merged.get(ep);
+      if (block.title && !target.title) target.title = block.title;
+      target.lines = target.lines.concat(block.lines);
+    });
+
+    return Array.from(merged.values())
+      .sort(function (a, b) { return a.ep - b.ep; })
+      .map(function (block) {
+        return { ep: block.ep, title: block.title, shots: parseEpisodeBlock(block.lines) };
+      })
+      .filter(function (block) { return block.shots.length > 0; });
+  };
+
+  Gen.applyImportedScript = function (project, parsed) {
+    if (!Array.isArray(parsed) || !parsed.length) throw new Error('没有可导入的剧本内容');
+    const importedEps = parsed.map(function (block) { return Number(block.ep); });
+
+    project.shots = (project.shots || []).filter(function (shot) {
+      return importedEps.indexOf(Number(shot.ep)) < 0;
+    });
+    parsed.forEach(function (block) {
+      block.shots.forEach(function (shot, index) {
+        shot.ep = Number(block.ep);
+        shot.no = index + 1;
+        shot.assetIds = shot.assetIds || [];
+      });
+      project.shots = project.shots.concat(block.shots);
+    });
+    project.shots.sort(function (a, b) {
+      return Number(a.ep) - Number(b.ep) || Number(a.no) - Number(b.no);
+    });
+
+    project.scriptStatus = project.scriptStatus || {};
+    parsed.forEach(function (block) { project.scriptStatus[block.ep] = true; });
+
+    const maxEp = Math.max.apply(null, importedEps);
+    if (maxEp > Number(project.overview?.episodes || 0)) {
+      project.overview = project.overview || {};
+      project.overview.episodes = maxEp;
+    }
+
+    project.outline = project.outline || [];
+    const cliffTypes = (D && D.cliffTypes) || ['信息', '情感', '危机', '反转', '选择'];
+    const clean = function (value) {
+      return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    };
+    parsed.forEach(function (block) {
+      if (project.outline.some(function (item) { return Number(item.ep) === Number(block.ep); })) return;
+      const first = block.shots[0] || {};
+      const last = block.shots[block.shots.length - 1] || {};
+      project.outline.push({
+        ep: Number(block.ep),
+        stage: '',
+        cliffType: cliffTypes[(Number(block.ep) - 1) % cliffTypes.length],
+        goal: clean(first.dialogue || first.action),
+        hook: clean(first.dialogue || first.action),
+        action: clean(first.action),
+        counter: '',
+        conflict: '',
+        info: '',
+        relation: '',
+        result: clean(last.dialogue || last.action),
+        cliff: clean(last.action || last.dialogue)
+      });
+    });
+    project.outline.sort(function (a, b) { return Number(a.ep) - Number(b.ep); });
+
+    const shotCount = parsed.reduce(function (n, block) { return n + block.shots.length; }, 0);
+    Store.addActivity(`导入已有剧本：${parsed.length} 集 / ${shotCount} 个镜头`);
+    Store.touch();
+    return { episodes: parsed.length, shots: shotCount };
+  };
+
   /* ---------------- 可行性 / 风险 / 评分 ---------------- */
   Gen.fillFeasibility = function (project) {
     const b = Gen.genreBundle(project);
@@ -879,6 +1133,59 @@
     ].filter(Boolean).join('\n');
   };
 
+  function brief(value, max) {
+    const t = String(value || '').replace(/\s+/g, ' ').trim();
+    return t.length > (max || 60) ? t.slice(0, max || 60) + '…' : t;
+  }
+
+  /* 故事规格摘要：故事规格是可选增强，已填写的设定会注入大纲与剧本生成 */
+  Gen.specDigest = function (project) {
+    const lines = [];
+    const e = project.engine || {};
+    const pr = e.protagonist || {};
+    const prot = [pr.name, pr.identity, pr.flaw && `缺陷：${brief(pr.flaw, 40)}`, pr.ability && `能力：${brief(pr.ability, 40)}`, pr.fear && `恐惧：${brief(pr.fear, 40)}`, pr.protect && `要保护：${brief(pr.protect, 40)}`].filter(Boolean).join('；');
+    if (prot) lines.push(`主角：${prot}`);
+    const rv = e.rival || {};
+    if (rv.name || rv.goal) lines.push(`对手：${[rv.name, rv.goal && `目标：${brief(rv.goal, 40)}`, rv.mirror && `镜像：${brief(rv.mirror, 40)}`].filter(Boolean).join('；')}`);
+    const de = e.desires || {};
+    if (de.surface || de.deep || de.hidden) lines.push(`欲望：表面 ${brief(de.surface, 36)}；深层 ${brief(de.deep, 36)}；隐秘 ${brief(de.hidden, 36)}`);
+    if (e.finalChoice?.question) lines.push(`最终选择：${brief(e.finalChoice.question, 80)}（${brief(e.finalChoice.a, 24)} vs ${brief(e.finalChoice.b, 24)}）`);
+    if ((project.rules || []).length) {
+      lines.push('核心规则：' + project.rules.slice(0, 6).map((r, i) => `规则${i + 1}「${brief(r.name, 16)}」${brief(r.effect, 44)}（代价：${brief(r.costNow, 30)}；限制：${brief(r.limits, 30)}）`).join('；'));
+    }
+    const chars = (project.characters || []).slice(0, 8);
+    if (chars.length) lines.push('人物：' + chars.map(ch => `${brief(ch.name, 10)}（${brief(ch.role, 8)}${ch.desire ? '，想要：' + brief(ch.desire, 24) : ''}${ch.fear ? '，害怕：' + brief(ch.fear, 20) : ''}${ch.depth?.habit ? '，习惯：' + brief(ch.depth.habit, 20) : ''}）`).join('；'));
+    if ((project.secrets || []).length) lines.push('秘密：' + project.secrets.slice(0, 6).map(s => `${brief(s.layer, 8)}——${brief(s.content, 50)}`).join('；'));
+    if ((project.stages || []).length) lines.push('阶段：' + project.stages.slice(0, 8).map(s => `S${s.no} ${brief(s.name, 12)}（第${s.from}—${s.to}集，目标：${brief(s.goal, 30)}）`).join('；'));
+    if ((project.emotionCurve || []).length) lines.push('情绪节点：' + project.emotionCurve.slice(0, 8).map(x => `第${x.ep}集 ${brief(x.phase, 10)}/${brief(x.type, 8)}`).join('；'));
+    if ((project.cliffhangers || []).length) lines.push('卡点设计：' + project.cliffhangers.slice(0, 8).map(c => `第${c.ep}集 ${brief(c.type, 6)}：${brief(c.text, 36)}`).join('；'));
+    if (project.review?.conclusion) lines.push(`选题复核结论：${brief(project.review.conclusion, 60)}`);
+    if (!lines.length) return { filled: false, text: '' };
+    return { filled: true, text: '故事规格（个性设定，必须遵守）：\n' + lines.join('\n') };
+  };
+
+  /* 已有剧本摘要：用于按已有大纲 / 镜头反推故事规格，或续写时保持连贯 */
+  Gen.scriptDigest = function (project, limit) {
+    const n = limit || 6;
+    const outline = (project.outline || []).slice().sort((a, b) => Number(a.ep) - Number(b.ep));
+    const shots = project.shots || [];
+    const eps = new Set(shots.map(s => Number(s.ep)));
+    const lines = [];
+    if (outline.length) {
+      lines.push('已有分集大纲：');
+      outline.slice(0, n).forEach(o => lines.push(`第${o.ep}集：目标 ${brief(o.goal, 40)}；开场 ${brief(o.hook, 30)}；结尾 ${brief(o.cliff, 40)}（${o.cliffType || ''}）`));
+      if (outline.length > n) lines.push(`……共 ${outline.length} 集大纲。`);
+    }
+    if (eps.size) {
+      lines.push(`已有正式剧本：${eps.size} 集 / ${shots.length} 个镜头。`);
+      Array.from(eps).sort((a, b) => a - b).slice(0, 3).forEach(ep => {
+        const list = shots.filter(s => Number(s.ep) === ep).slice(0, 4);
+        list.forEach(s => lines.push(`第${ep}集镜头：${brief(s.action || s.dialogue, 44)}`));
+      });
+    }
+    return lines.join('\n');
+  };
+
   /* 统一取语言模型：所有生成都走模型，不再回退本地模板 */
   Gen.llm = function (kind) {
     const provider = Store.providerFor(kind || 'development') || Store.providerFor('llm');
@@ -921,44 +1228,53 @@
 5. 情感必须落在具体关系上（亲人 / 伴侣 / 同事 / 陌生人），不用抽象词。
 6. 只输出合法 JSON，不要 Markdown 代码块，不要解释。`;
 
-  Gen.aiConcepts = async function (project, opts) {
-    const o = opts || {};
-    const ov = project.overview || {};
-    const pg = ov.privateGoods || {};
-    const count = Number(o.count || 9);
-    const focus = o.genre || '';
-    const group = window.D.genreGroupOf(focus);
+  /* 独立选题：不依赖项目，按参数生成高概念候选 */
+  Gen.aiTopicCandidates = async function (params) {
+    const p = params || {};
+    const count = Math.min(12, Math.max(3, Number(p.count) || 6));
+    const focus = p.genre || '';
+    const group = focus ? window.D.genreGroupOf(focus) : null;
+    const emotions = (p.emotions || []).filter(Boolean);
     const allGenres = window.D.genres.join('、');
     const messages = [
-      { role: 'system', content: CONCEPT_SYSTEM },
+      { role: 'system', content: CONCEPT_SYSTEM + '\n这是独立选题任务，没有已有项目上下文，只按给定参数生成。' },
       {
-        role: 'user', content: `作者私货：
-主题：${pg.theme || ''}
-情感瞬间：${pg.moment || ''}
-最讨厌的套路：${pg.hatedTrope || ''}
-相信的一句话：${pg.belief || ''}
-童年细节：${pg.childhood || ''}
-愧疚瞬间：${pg.regret || ''}
-最近的情绪场景：${pg.recentScene || ''}
-
-项目：${ov.title || project.name} / 集数 ${ov.episodes || 60} / 核心情绪 ${(ov.emotions || []).join('、') || '未定'}
+        role: 'user', content: `生成参数：
 类型聚焦：${focus ? `${focus}${group ? `（${group.label}）` : ''}` : '不限，跨类型发散'}
 可选类型库：${allGenres}
+核心情绪：${emotions.length ? emotions.join('、') : '不限'}
+目标受众 / 平台：${p.audience || '不限'} / ${p.platform || '抖音 / 快手'}
+集数 / 单集时长：${p.episodes || 60} 集，单集 ${p.duration || '1—3分钟'}
+作者偏好或方向：${p.preference || '无'}
+必须规避：${p.avoid || '无'}
 
-请输出 ${count} 个方向互不重复的高概念；${focus ? `其中至少 5 个属于「${focus}」，其余可跨类型对照` : '覆盖至少 4 个不同类型'}；每个概念里的 genre 必须取自类型库原文。
-严格输出 JSON：{"concepts":[{"title":"不超过 8 字","genre":"取自类型库","logline":"三句话内，人物+设定+冲突+情感钩子","hero":"姓名（年龄，职业）","heroName":"","profession":"","unique":"独特设定","object":"关键物件","conflict":"核心冲突","hook":"第一集钩子","emotion":"最能打动观众的情绪"}]}`
+请输出 ${count} 个方向互不重复的高概念；${focus ? `本批集中在「${focus}」，用不同职业、物件与冲突区分，不必强行跨类型` : '覆盖至少 4 个不同类型'}。
+每个概念必须点明：独特设定（可重复触发、有代价）、关键物件、核心冲突、第一集前 3 秒钩子。
+严格输出 JSON：{"concepts":[{"title":"不超过 8 字","genre":"取自类型库","emotion":"最能打动观众的情绪","logline":"三句话内：人物+设定+冲突+情感钩子","hero":"姓名（年龄，职业）","heroName":"","profession":"","unique":"独特设定","object":"关键物件","conflict":"核心冲突","hook":"第一集钩子"}]}`
       }
     ];
-    const res = await Gen.chat('高概念候选', messages, { json: true, temperature: 0.95, maxTokens: 4096 });
+    const res = await Gen.chat('选题候选', messages, { json: true, temperature: 0.95, maxTokens: 4096 });
     const data = parseJson(res.text);
     const list = Array.isArray(data.concepts) ? data.concepts : [];
     if (!list.length) throw new Error('模型没有返回 concepts 数组');
+    const stamp = Date.now();
     return list.slice(0, count).map(function (c, i) {
-      return Object.assign({}, c, {
-        title: c.title || `方向 ${i + 1}`,
+      return {
+        id: 'topic_' + stamp + '_' + i,
+        title: String(c.title || `方向 ${i + 1}`).slice(0, 20),
         genre: c.genre || focus || '都市情感',
-        emotion: c.emotion || (ov.emotions || [])[0] || '情感拉扯'
-      });
+        emotion: c.emotion || emotions[0] || '',
+        logline: c.logline || '',
+        hero: c.hero || '',
+        heroName: nameOf(c.heroName || c.hero || ''),
+        profession: c.profession || '',
+        unique: c.unique || '',
+        object: c.object || '',
+        conflict: c.conflict || '',
+        hook: c.hook || '',
+        createdAt: stamp,
+        params: { genre: focus, emotions: emotions, audience: p.audience || '', platform: p.platform || '', preference: p.preference || '' }
+      };
     });
   };
 
@@ -1014,9 +1330,15 @@
     const schema = AI_SCHEMA[stepId];
     if (!schema) throw new Error('该步骤暂不支持 AI 生成');
     const step = D.stepInfo(stepId);
+    const spec = Gen.specDigest(project);
+    const script = Gen.scriptDigest(project, 8);
+    const extra = [
+      spec.filled ? spec.text : '',
+      script ? `已有剧本 / 大纲（优先据此反推，不要另起设定）：\n${script}` : ''
+    ].filter(Boolean).join('\n\n');
     const messages = [
       { role: 'system', content: AI_RULES },
-      { role: 'user', content: `项目上下文：\n${Gen.stepContext(project)}\n\n现在执行开发步骤「${step.title}」：${step.desc}\n\n请严格按以下 JSON 结构输出（字段内容用中文，具体、可拍、不空泛）：\n${schema}` }
+      { role: 'user', content: `项目上下文：\n${Gen.stepContext(project)}${extra ? '\n\n' + extra : ''}\n\n现在执行开发步骤「${step.title}」：${step.desc}\n\n请严格按以下 JSON 结构输出（字段内容用中文，具体、可拍、不空泛）：\n${schema}${script ? '\n\n若已有剧本 / 大纲，请从现有内容反推本步设定并保持人物、规则、秘密一致；只补充缺失部分。' : ''}` }
     ];
     const res = await Gen.chat('步骤 · ' + step.title, messages, { json: true, temperature: 0.85 });
     const data = parseJson(res.text);
@@ -1072,9 +1394,10 @@
 
   Gen.aiOutline = async function (project, fromEp, toEp) {
     const stages = (project.stages || []).map(s => `阶段${s.no} ${s.name}（第${s.from}—${s.to}集）：${s.goal}`).join('\n');
+    const spec = Gen.specDigest(project);
     const messages = [
       { role: 'system', content: AI_RULES },
-      { role: 'user', content: `项目上下文：\n${Gen.stepContext(project)}\n\n整剧阶段：\n${stages}\n\n请生成第 ${fromEp}—${toEp} 集的分集大纲，严格输出 JSON：\n{"outline":[{"ep":${fromEp},"stage":"","goal":"","hook":"","action":"","counter":"","conflict":"","info":"","relation":"","result":"","cliff":"","cliffType":"信息"}]}\n卡点类型必须按 信息/危机/关系/选择/反转 轮换，不得连续两集同类型。` }
+      { role: 'user', content: `项目上下文：\n${Gen.stepContext(project)}${spec.filled ? '\n\n' + spec.text : ''}\n\n整剧阶段：\n${stages}\n\n请生成第 ${fromEp}—${toEp} 集的分集大纲，严格输出 JSON：\n{"outline":[{"ep":${fromEp},"stage":"","goal":"","hook":"","action":"","counter":"","conflict":"","info":"","relation":"","result":"","cliff":"","cliffType":"信息"}]}\n卡点类型必须按 信息/危机/关系/选择/反转 轮换，不得连续两集同类型。` }
     ];
     const res = await Gen.chat('分集大纲', messages, { json: true, temperature: 0.85, maxTokens: 8192 }, 'development');
     const data = parseJson(res.text);
@@ -1089,9 +1412,11 @@
   Gen.aiScript = async function (project, ep) {
     const o = (project.outline || []).find(x => Number(x.ep) === Number(ep));
     if (!o) throw new Error('该集还没有大纲，请先生成分集大纲');
+    const spec = Gen.specDigest(project);
+    const prev = (project.outline || []).find(x => Number(x.ep) === Number(ep) - 1);
     const messages = [
       { role: 'system', content: AI_RULES + '\n11. 剧本为竖屏短剧：单集 60—180 秒，镜头 10—25 个，单镜头 3—10 秒；台词总量 300—600 字。' },
-      { role: 'user', content: `项目上下文：\n${Gen.stepContext(project)}\n\n本集大纲：\n${JSON.stringify(o, null, 2)}\n\n请写第 ${ep} 集正式剧本，严格输出 JSON：\n{"shots":[{"size":"特写|近景|中景|全景|远景","sceneTitle":"内·地点·时间","action":"","dialogue":"角色名：台词（可空）","sound":"","emotion":"","duration":5,"prompt":"竖屏9:16 英文/中文画面提示"}],"cliff":"","cliffType":"信息"}\n要求：第一个镜头 5 秒内出钩子；最后镜头是字幕卡点；台词单句 ≤20 字；禁止说教与解释情绪。` }
+      { role: 'user', content: `项目上下文：\n${Gen.stepContext(project)}${spec.filled ? '\n\n' + spec.text : ''}${prev ? `\n\n上一集结尾卡点：第${prev.ep}集 ${prev.cliff || ''}（${prev.cliffType || ''}）` : ''}\n\n本集大纲：\n${JSON.stringify(o, null, 2)}\n\n请写第 ${ep} 集正式剧本，严格输出 JSON：\n{"shots":[{"size":"特写|近景|中景|全景|远景","sceneTitle":"内·地点·时间","action":"","dialogue":"角色名：台词（可空）","sound":"","emotion":"","duration":5,"prompt":"竖屏9:16 英文/中文画面提示"}],"cliff":"","cliffType":"信息"}\n要求：第一个镜头 5 秒内出钩子；最后镜头是字幕卡点；台词单句 ≤20 字；禁止说教与解释情绪。` }
     ];
     const res = await Gen.chat('剧本 · 第 ' + ep + ' 集', messages, { json: true, temperature: 0.9, maxTokens: 8192 }, 'script');
     const data = parseJson(res.text);

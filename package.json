@@ -1,7 +1,7 @@
 {
   "name": "duanju-studio",
   "productName": "短剧工作台",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "短剧工作台 · AI 短剧可视化制作桌面端",
   "main": "electron/main.js",
   "author": "Duanju Studio",
